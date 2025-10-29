@@ -1,7 +1,39 @@
 const router = require('express').Router();
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const db = require('../../data/dbConfig');
 
-router.post('/register', (req, res) => {
-  res.end('implement register, please!');
+const SALT_ROUNDS = 8; // do not exceed 2^8
+const JWT_SECRET = process.env.JWT_SECRET || 'shh';
+
+function buildToken(user) {
+  const payload = {
+    subject: user.id,
+    username: user.username,
+  };
+  const options = { expiresIn: '1d' };
+  return jwt.sign(payload, JWT_SECRET, options);
+}
+
+router.post('/register', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ message: 'username and password required' });
+    }
+
+    const existing = await db('users').where('username', username).first();
+    if (existing) {
+      return res.status(400).json({ message: 'username taken' });
+    }
+
+    const hash = await bcrypt.hash(password, SALT_ROUNDS);
+    const [id] = await db('users').insert({ username, password: hash });
+    const created = await db('users').where('id', id).first();
+    return res.status(201).json(created);
+  } catch (err) {
+    return res.status(500).json({ message: 'something went wrong' });
+  }
   /*
     IMPLEMENT
     You are welcome to build additional middlewares to help with the endpoint's functionality.
@@ -29,8 +61,28 @@ router.post('/register', (req, res) => {
   */
 });
 
-router.post('/login', (req, res) => {
-  res.end('implement login, please!');
+router.post('/login', async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ message: 'username and password required' });
+    }
+
+    const user = await db('users').where('username', username).first();
+    if (!user) {
+      return res.status(401).json({ message: 'invalid credentials' });
+    }
+
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ message: 'invalid credentials' });
+    }
+
+    const token = buildToken(user);
+    return res.status(200).json({ message: `welcome, ${user.username}` , token });
+  } catch (err) {
+    return res.status(500).json({ message: 'something went wrong' });
+  }
   /*
     IMPLEMENT
     You are welcome to build additional middlewares to help with the endpoint's functionality.
